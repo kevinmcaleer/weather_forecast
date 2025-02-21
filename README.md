@@ -10,3 +10,9 @@ Data is from an MQTT server, which is updated from an in flux database, which is
 Upload the `umqttsimple.py` and `pichart.py` files to the MicroPython device (Presto).
 
 ---
+
+## Functional Reference
+
+[Functional Reference](functional_reference.md)
+
+---
