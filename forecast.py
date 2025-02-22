@@ -9,7 +9,8 @@ from statsmodels.tsa.arima.model import ARIMA
 MQTT_HOST = "192.168.1.152"
 MQTT_PORT = 1883
 
-mqtt_client = mqtt.Client()
+# Use modern callback API and MQTT v3.1.1
+mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311)
 
 # InfluxDB Connection (for InfluxDB 1.x)
 INFLUXDB_HOST = "192.168.1.10"
@@ -30,11 +31,27 @@ def get_data():
     df.set_index("time", inplace=True)
     df = df.sort_index()
     
+    # Convert 'pressure' to numeric, coercing invalid values to NaN
+    df["pressure"] = pd.to_numeric(df["pressure"], errors='coerce')
+    
+    # Select only the 'pressure' column and resample it
+    pressure_series = df["pressure"].resample("5min").mean()
+    
+    # Convert back to DataFrame for consistency
+    df = pd.DataFrame(pressure_series, columns=["pressure"])
+    
+    # Remove rows with NaN in the 'pressure' column
+    df = df.dropna(subset=["pressure"])
+    
     # Round pressure values to 1 decimal point
     df["pressure"] = df["pressure"].round(1)
     
-    # Get the last 20 pressure values as a list
+    # Get the last 20 pressure values as a list, ensuring we have enough data
     last_20_pressures = df["pressure"].tail(20).tolist()
+    
+    # Ensure we have enough data for ARIMA (at least 6 points for order=(5,1,0))
+    if len(df["pressure"]) < 6:
+        raise ValueError("Not enough valid pressure data points for ARIMA model")
     
     model = ARIMA(df['pressure'], order=(5,1,0))
     model_fit = model.fit()
@@ -60,17 +77,22 @@ def interpret_weather(current, future):
 
 while True:
     print("waking up")
-    current_pressure, predicted_pressure, last_20_pressures = get_data()
-    prediction = interpret_weather(current_pressure, predicted_pressure)
-    
-    # Publish pressure readings to MQTT
-    print(f"last_20_pressures: {last_20_pressures}")
-    pressure_payload = json.dumps({"last_20_pressures": last_20_pressures})
-    
-    mqtt_client.connect(MQTT_HOST, MQTT_PORT)
-    mqtt_client.publish("weather/prediction", prediction)
-    mqtt_client.publish("weather/pressure", pressure_payload)
-    mqtt_client.disconnect()
-    
-    print("Sleeping for 5 seconds")
-    sleep(5)
+    try:
+        current_pressure, predicted_pressure, last_20_pressures = get_data()
+        prediction = interpret_weather(current_pressure, predicted_pressure)
+        
+        # Publish pressure readings to MQTT
+        print(f"last_20_pressures: {last_20_pressures}")
+        pressure_payload = json.dumps({"last_20_pressures": last_20_pressures})
+        
+        mqtt_client.connect(MQTT_HOST, MQTT_PORT)
+        mqtt_client.publish("weather/prediction", prediction)
+        mqtt_client.publish("weather/pressure", pressure_payload)
+        mqtt_client.disconnect()
+        
+        print("Sleeping for 5 seconds")
+        sleep(5)
+    except ValueError as e:
+        print(f"Error: {e}")
+        print("Sleeping for 5 seconds before retrying")
+        sleep(5)
