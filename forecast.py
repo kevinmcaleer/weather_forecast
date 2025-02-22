@@ -20,47 +20,53 @@ DATABASE = "weather"
 client = InfluxDBClient(host=INFLUXDB_HOST, port=INFLUXDB_PORT, database=DATABASE)
 
 def get_data():
-    """ Get latest weather data from InfluxDB """
-    query = "SELECT * FROM weather WHERE time > now() - 24h"
+    """ Get latest weather data from InfluxDB for Summerhouse location """
+    # Query hourly mean pressure for the last 24 hours, only by location
+    query = """
+        SELECT MEAN("pressure") AS "pressure"
+        FROM "weather"
+        WHERE "location" = 'Summerhouse'
+        AND time > now() - 24h
+        GROUP BY time(1h)
+        ORDER BY time ASC
+    """
     result = client.query(query)
     
     data = list(result.get_points())
+    if not data:
+        raise ValueError("No data returned for Summerhouse location in the last 24 hours")
+    
+    # Debug: Print raw data points
+    print("Raw data (first 5 points):", data[:5])
+    
     df = pd.DataFrame(data)
     
     df["time"] = pd.to_datetime(df["time"])
     df.set_index("time", inplace=True)
     df = df.sort_index()
     
-    # Convert 'pressure' to numeric, coercing invalid values to NaN
-    df["pressure"] = pd.to_numeric(df["pressure"], errors='coerce')
-    
-    # Select only the 'pressure' column and resample it
-    pressure_series = df["pressure"].resample("5min").mean()
-    
-    # Convert back to DataFrame for consistency
-    df = pd.DataFrame(pressure_series, columns=["pressure"])
-    
-    # Remove rows with NaN in the 'pressure' column
-    df = df.dropna(subset=["pressure"])
-    
     # Round pressure values to 1 decimal point
     df["pressure"] = df["pressure"].round(1)
     
-    # Get the last 20 pressure values as a list, ensuring we have enough data
-    last_20_pressures = df["pressure"].tail(20).tolist()
+    # Debug: Print length of data
+    print(f"Number of hourly points: {len(df)}")
     
-    # Ensure we have enough data for ARIMA (at least 6 points for order=(5,1,0))
-    if len(df["pressure"]) < 6:
+    # Get the last 24 hourly pressure values as a list
+    last_24_pressures = df["pressure"].tail(24).tolist()
+    
+    # Ensure we have enough data for ARIMA (at least 6 points for order=(2,1,0))
+    if len(df) < 6:
         raise ValueError("Not enough valid pressure data points for ARIMA model")
     
-    model = ARIMA(df['pressure'], order=(5,1,0))
+    # Use a simpler ARIMA model to reduce non-stationarity issues
+    model = ARIMA(df['pressure'], order=(2,1,0))
     model_fit = model.fit()
     forecast = model_fit.forecast(steps=3)
     
     current_pressure = df["pressure"].iloc[-1]
     predicted_pressure = round(forecast.iloc[-1], 1)  # Round the forecast too
     
-    return current_pressure, predicted_pressure, last_20_pressures
+    return current_pressure, predicted_pressure, last_24_pressures
 
 def interpret_weather(current, future):
     change = future - current
@@ -78,12 +84,12 @@ def interpret_weather(current, future):
 while True:
     print("waking up")
     try:
-        current_pressure, predicted_pressure, last_20_pressures = get_data()
+        current_pressure, predicted_pressure, last_24_pressures = get_data()
         prediction = interpret_weather(current_pressure, predicted_pressure)
         
         # Publish pressure readings to MQTT
-        print(f"last_20_pressures: {last_20_pressures}")
-        pressure_payload = json.dumps({"last_20_pressures": last_20_pressures})
+        print(f"last_24_pressures: {last_24_pressures}")
+        pressure_payload = json.dumps({"last_24_pressures": last_24_pressures})
         
         mqtt_client.connect(MQTT_HOST, MQTT_PORT)
         mqtt_client.publish("weather/prediction", prediction)
