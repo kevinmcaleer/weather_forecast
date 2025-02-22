@@ -21,17 +21,19 @@ MQTT_SERVER = "192.168.1.152"
 MQTT_PORT = 1883
 MQTT_TOPIC = "weather/prediction"
 PRESSURE_TOPIC = "weather/pressure"
+TEMP_TOPIC = "weather/temperature"
 MQTT_CLIENT_ID = "weather"
 
 # Initial pressure list (24 hourly values, default to zeros)
 pressure = [0] * 24  # Matches the 24 hourly values from your Python script
 
+temperature = [20,21,20]
 # Global variable for prediction text (fixed-size buffer to prevent fragmentation)
 prediction = "Waiting for prediction..."[:50]
 
 def sub_cb(topic, msg):
     """ MQTT Subscribe Callback: Updates global variables with received messages. """
-    global prediction, pressure
+    global prediction, pressure, temperature
     topic = topic.decode("utf-8")
     msg = msg.decode("utf-8")
     
@@ -46,6 +48,15 @@ def sub_cb(topic, msg):
             print(f"Pressure data received: {pressure}")
         except (ValueError, KeyError) as e:
             print(f"Error parsing pressure data: {e}")
+    elif topic == TEMP_TOPIC:
+        try:
+            temp_payload = json.loads(msg)
+            # Expecting {"last_24_pressures": [list of 24 values]}
+            temperature = temp_payload["last_24_temperatures"]
+            print(f"Temperature data received: {temperature}")
+        except (ValueError, KeyError) as e:
+            print(f"Error parsing Temperature data: {e}")
+            
 
 def connect_wifi():
     """ Connect to Wi-Fi. """
@@ -63,7 +74,7 @@ def connect_wifi():
 
 def connect_and_subscribe():
     """ Connect to MQTT broker and subscribe to topics. """
-    global MQTT_CLIENT_ID, MQTT_SERVER
+    global MQTT_CLIENT_ID, MQTT_SERVER, TEMP_TOPIC
 
     print(f"Connecting to MQTT: {MQTT_CLIENT_ID} @ {MQTT_SERVER}:{MQTT_PORT}")
     client = MQTTClient(MQTT_CLIENT_ID, MQTT_SERVER, keepalive=30)
@@ -71,6 +82,7 @@ def connect_and_subscribe():
     client.connect()
     client.subscribe(MQTT_TOPIC)
     client.subscribe(PRESSURE_TOPIC)
+    client.subscribe(TEMP_TOPIC)
     return client
 
 def restart_reconnect():
@@ -111,17 +123,20 @@ pressure_chart.show_bars = False
 pressure_chart.grid = True
 
 temperature_chart = pichart.Chart(display, title="Temperature (°C)")
-temperature_chart.set_values([20, 25, 22, 28])  # Initial values
+temperature_chart.set_values(temperature)  # Initial values
 temperature_chart.min_val = -10  # Typical min temperature in °C
-temperature_chart.max_val = 40  # Typical max temperature in °C
+temperature_chart.max_val = 30  # Typical max temperature in °C
+temperature_chart.show_values = True
+
 container.add_chart(temperature_chart)
 container.update()
 
 forecast_card = pichart.Card(display, title="Forecast")
 forecast_card.title = "Forecast"
-forecast_card.background_colour = {'red': 0, 'green': 0, 'blue': 0}
+forecast_card.background_colour = {'red': 0, 'green': 0, 'blue': 255}
 forecast_card.data_colour = {'red': 255, 'green': 255, 'blue': 255}
 forecast_card.show_border = True
+forecast_card.update()
 container.add_chart(forecast_card)
 container.cols = 2
 
@@ -142,7 +157,8 @@ while True:
     # Update chart with latest pressure values
     pressure_chart.set_values(pressure)  # Update chart data
     forecast_card.title = prediction  # Update forecast
-    pressure_chart.update()
+    temperature_chart.set_values(temperature)
+#     pressure_chart.update()
     container.update()
     presto.update()
     
