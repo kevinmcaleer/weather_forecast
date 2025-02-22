@@ -9,6 +9,8 @@ Data is from an MQTT server, which is updated from an in flux database, which is
 
 Upload the `umqttsimple.py` and `pichart.py` files to the MicroPython device (Presto).
 
+[PiChart](https://www.github.com/kevinmcaleer/pichart) is a PicoGraphics-based mini dashboard library for MicroPython
+
 ---
 
 ## Functional Reference
