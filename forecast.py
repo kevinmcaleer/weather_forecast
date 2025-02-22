@@ -30,14 +30,18 @@ def get_data():
     df.set_index("time", inplace=True)
     df = df.sort_index()
     
-    last_20_pressures = df["pressure"].tail(20).to_dict()
+    # Round pressure values to 1 decimal point
+    df["pressure"] = df["pressure"].round(1)
+    
+    # Get the last 20 pressure values as a list
+    last_20_pressures = df["pressure"].tail(20).tolist()
     
     model = ARIMA(df['pressure'], order=(5,1,0))
     model_fit = model.fit()
     forecast = model_fit.forecast(steps=3)
     
     current_pressure = df["pressure"].iloc[-1]
-    predicted_pressure = forecast.iloc[-1]
+    predicted_pressure = round(forecast.iloc[-1], 1)  # Round the forecast too
     
     return current_pressure, predicted_pressure, last_20_pressures
 
@@ -60,6 +64,7 @@ while True:
     prediction = interpret_weather(current_pressure, predicted_pressure)
     
     # Publish pressure readings to MQTT
+    print(f"last_20_pressures: {last_20_pressures}")
     pressure_payload = json.dumps({"last_20_pressures": last_20_pressures})
     
     mqtt_client.connect(MQTT_HOST, MQTT_PORT)

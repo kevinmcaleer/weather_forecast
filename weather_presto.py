@@ -94,13 +94,12 @@ except OSError:
 
 chart = pichart.Chart(display, title="Pressure")
 print(f"Pressure values are: {pressure}")
-chart.x_values = pressure
+chart.set_values = pressure
 chart.min_val = 1
 chart.max_val = 100
 container = pichart.Container(display)
 container.add_chart(chart)
 container.update()
-chart.scale_data()
 
 # Main loop: Poll MQTT and update display
 while True:
