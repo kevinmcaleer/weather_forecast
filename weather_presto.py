@@ -22,6 +22,7 @@ MQTT_PORT = 1883
 MQTT_TOPIC = "weather/prediction"
 PRESSURE_TOPIC = "weather/pressure"
 TEMP_TOPIC = "weather/temperature"
+CURRENT_TEMP = "weather/current_temperature"
 MQTT_CLIENT_ID = "weather"
 
 # Initial pressure list (24 hourly values, default to zeros)
@@ -31,16 +32,18 @@ temperature = [20,21,20]
 # Global variable for prediction text (fixed-size buffer to prevent fragmentation)
 prediction = "Waiting for prediction..."[:50]
 
+current_temperature = 21
+
 def sub_cb(topic, msg):
     """ MQTT Subscribe Callback: Updates global variables with received messages. """
-    global prediction, pressure, temperature
+    global prediction, pressure, temperature, current_temperature
     topic = topic.decode("utf-8")
     msg = msg.decode("utf-8")
     
     if topic == MQTT_TOPIC:  # "weather/prediction"
         print(f'Received MQTT: topic={topic}, msg={msg}')
         prediction = msg[:50]  # Trim to 50 chars to avoid memory issues
-    elif topic == PRESSURE_TOPIC:  # "weather/pressure"
+    if topic == PRESSURE_TOPIC:  # "weather/pressure"
         try:
             payload = json.loads(msg)
             # Expecting {"last_24_pressures": [list of 24 values]}
@@ -48,7 +51,7 @@ def sub_cb(topic, msg):
             print(f"Pressure data received: {pressure}")
         except (ValueError, KeyError) as e:
             print(f"Error parsing pressure data: {e}")
-    elif topic == TEMP_TOPIC:
+    if topic == TEMP_TOPIC:
         try:
             temp_payload = json.loads(msg)
             # Expecting {"last_24_pressures": [list of 24 values]}
@@ -56,6 +59,14 @@ def sub_cb(topic, msg):
             print(f"Temperature data received: {temperature}")
         except (ValueError, KeyError) as e:
             print(f"Error parsing Temperature data: {e}")
+    if topic == CURRENT_TEMP:
+        try:
+            current_temp_payload = json.loads(msg)
+            # Expecting {"last_24_pressures": [list of 24 values]}
+            current_temperature = current_temp_payload["current_temperature"]
+            print(f"Current Temperature data received: {current_temperature}")
+        except (ValueError, KeyError) as e:
+            print(f"Error parsing Current Temperature data: {e}")
             
 
 def connect_wifi():
@@ -83,6 +94,7 @@ def connect_and_subscribe():
     client.subscribe(MQTT_TOPIC)
     client.subscribe(PRESSURE_TOPIC)
     client.subscribe(TEMP_TOPIC)
+    client.subscribe(CURRENT_TEMP)
     return client
 
 def restart_reconnect():
@@ -113,32 +125,65 @@ pressure_chart = pichart.Chart(display, title="Pressure (hPa)")
 pressure_chart.set_values(pressure)  # Initial values
 pressure_chart.min_val = 900  # Typical min atmospheric pressure in hPa
 pressure_chart.max_val = 1100  # Typical max atmospheric pressure in hPa
+
 container = pichart.Container(display)
 container.add_chart(pressure_chart)
-container.update()
+
 container.data_colour = {'red': 0, 'green': 0, 'blue': 255}  # Blue data
 pressure_chart.show_datapoints = True
 pressure_chart.show_lines = True
+pressure_chart.show_points = False
 pressure_chart.show_bars = False
+pressure_chart.show_y_axis = True
 pressure_chart.grid = True
+pressure_chart.scale_to_fit = True
+pressure_chart.grid_colour = {'red': 222, 'green': 222, 'blue': 222}
 
-temperature_chart = pichart.Chart(display, title="Temperature (°C)")
+temperature_chart = pichart.Chart(display, title="Temp °C")
+
 temperature_chart.set_values(temperature)  # Initial values
 temperature_chart.min_val = -10  # Typical min temperature in °C
 temperature_chart.max_val = 30  # Typical max temperature in °C
-temperature_chart.show_values = True
+
+temperature_chart.scale_to_fit = True
+temperature_chart.data_colour = {'red': 0 , 'green':255, 'blue': 0}
+temperature_chart.grid_colour = {'red': 222, 'green': 222, 'blue': 222}
+temperature_chart.show_y_axis = True 
 
 container.add_chart(temperature_chart)
-container.update()
 
 forecast_card = pichart.Card(display, title="Forecast")
 forecast_card.title = "Forecast"
 forecast_card.background_colour = {'red': 0, 'green': 0, 'blue': 255}
 forecast_card.data_colour = {'red': 255, 'green': 255, 'blue': 255}
-forecast_card.show_border = True
+forecast_card.title_colour = {'red': 0, 'green': 0, 'blue': 255}
 forecast_card.update()
+
+current_temp_card = pichart.Card(display, title="Temp")
+current_temp_card.title = "Current Temperature"
+current_temp_card.background_colour = {'red': 0, 'green': 0, 'blue': 255}
+current_temp_card.data_colour = {'red': 255, 'green': 0, 'blue': 0}
+current_temp_card.title_colour = {'red': 255, 'green': 0, 'blue': 0}
+current_temp_card.update()
+
 container.add_chart(forecast_card)
+container.add_chart(current_temp_card)
+
 container.cols = 2
+ORANGE = {'red': 255, 'green': 165, 'blue': 0}
+LIGHT_BLUE = {'red':0, 'green': 150, 'blue': 255}
+GREEN = {'red': 16,'green':230,'blue':143}
+container.background_colour = {'red': 255, 'green': 255, 'blue': 255}
+# container.title_colour = {'red': 255, 'green': 0, 'blue': 0}
+container.title_colour = LIGHT_BLUE
+container.grid_colour = {'red': 242, 'green': 242, 'blue': 242}
+container.border_colour = {'red':242, 'green': 242, 'blue':242}
+current_temp_card.data_colour = {'red': 0, 'green': 255, 'blue': 0}
+temperature_chart.data_colour = GREEN
+pressure_chart.data_colour = ORANGE
+pressure_chart.update()
+temperature_chart.update()
+container.update()
 
 # Main loop: Poll MQTT and update display
 while True:
@@ -147,20 +192,17 @@ while True:
     except OSError as e:
         print(f"MQTT Error: {e}")
         restart_reconnect()
-
-    # Update Display
-#     display.set_pen(BLUE)
-#     display.clear()
-#     display.set_pen(WHITE)
-#     display.text(prediction, 0, 0, WIDTH, 2)
     
     # Update chart with latest pressure values
     pressure_chart.set_values(pressure)  # Update chart data
     forecast_card.title = prediction  # Update forecast
     temperature_chart.set_values(temperature)
-#     pressure_chart.update()
+    print(f'card current_tempreature is {current_temperature}')
+    current_temp_card.title = str(current_temperature)
+
+
     container.update()
     presto.update()
     
     gc.collect()  # Free up memory every loop iteration
-    sleep(5)  # 5s update interval
+    sleep(1)  # 5s update interval
